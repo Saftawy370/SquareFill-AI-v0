@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -19,6 +18,20 @@
         /* Custom styles for the cropper container */
         .react-easy-crop_Container {
             background-color: #1e293b !important;
+        }
+
+        /* Safe zone visual guide styling */
+        .crop-safe-zone::after {
+            content: "";
+            position: absolute;
+            top: 15%;
+            left: 15%;
+            right: 15%;
+            bottom: 15%;
+            border: 2px dashed rgba(255, 255, 255, 0.3);
+            pointer-events: none;
+            box-sizing: border-box;
+            border-radius: 4px;
         }
     </style>
 <script type="importmap">

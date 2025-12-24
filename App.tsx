@@ -1,5 +1,4 @@
-
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import Cropper, { Area, Point } from 'react-easy-crop';
 import { Layout } from './components/Layout';
 import { ImageState, ProcessingHistory } from './types';
@@ -23,9 +22,11 @@ const App: React.FC = () => {
   const [zoom, setZoom] = useState(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
 
-  // Final Step state: Dimension Selection
+  // Final Step state: Dimension Selection & Filename
   const [showDimensionPicker, setShowDimensionPicker] = useState(false);
   const [selectedDimension, setSelectedDimension] = useState<number>(1000);
+  const [estimatedSize, setEstimatedSize] = useState<string>('');
+  const [downloadFilename, setDownloadFilename] = useState<string>('');
 
   const [history, setHistory] = useState<ProcessingHistory[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -34,9 +35,63 @@ const App: React.FC = () => {
     setCroppedAreaPixels(croppedAreaPixels);
   }, []);
 
+  // Effect to estimate file size when dimension or crop changes
+  useEffect(() => {
+    if (!showDimensionPicker || !state.processed || !croppedAreaPixels || selectedDimension <= 0) {
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const image = new Image();
+        image.src = state.processed!;
+        await new Promise((resolve) => (image.onload = resolve));
+
+        const canvas = document.createElement('canvas');
+        canvas.width = selectedDimension;
+        canvas.height = selectedDimension;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(
+          image,
+          croppedAreaPixels.x,
+          croppedAreaPixels.y,
+          croppedAreaPixels.width,
+          croppedAreaPixels.height,
+          0,
+          0,
+          selectedDimension,
+          selectedDimension
+        );
+
+        canvas.toBlob((blob) => {
+          if (blob) {
+            const sizeInKb = blob.size / 1024;
+            if (sizeInKb > 1024) {
+              setEstimatedSize((sizeInKb / 1024).toFixed(2) + ' MB');
+            } else {
+              setEstimatedSize(Math.round(sizeInKb) + ' KB');
+            }
+          }
+        }, 'image/webp', 0.95);
+      } catch (e) {
+        console.error("Size estimation failed", e);
+      }
+    }, 500); // Debounce to avoid excessive canvas ops
+
+    return () => clearTimeout(timer);
+  }, [selectedDimension, showDimensionPicker, state.processed, croppedAreaPixels]);
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     let file = e.target.files?.[0];
     if (!file) return;
+
+    // Capture and clean original filename
+    const originalName = file.name.replace(/\.[^/.]+$/, "");
+    setDownloadFilename(originalName);
 
     setState(prev => ({ ...prev, isProcessing: true, error: null }));
 
@@ -114,11 +169,9 @@ const App: React.FC = () => {
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      // The selected dimension determines the output canvas size (Square)
       canvas.width = selectedDimension;
       canvas.height = selectedDimension;
 
-      // Enable smooth scaling
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
 
@@ -139,13 +192,12 @@ const App: React.FC = () => {
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `squarefill-${selectedDimension}x${selectedDimension}-${Date.now()}.webp`;
+        const filename = (downloadFilename.trim() || 'squarefill') + '.webp';
+        link.download = filename;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
-        
-        // Return to result view after download or stay? User choice. Let's stay in picker.
       }, 'image/webp', 0.95);
     } catch (e) {
       console.error(e);
@@ -163,6 +215,8 @@ const App: React.FC = () => {
     });
     setIsCroppingResult(false);
     setShowDimensionPicker(false);
+    setEstimatedSize('');
+    setDownloadFilename('');
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -299,6 +353,7 @@ const App: React.FC = () => {
                 onCropChange={setCrop}
                 onCropComplete={onCropComplete}
                 onZoomChange={setZoom}
+                classes={{ cropAreaClassName: 'crop-safe-zone' }}
               />
             </div>
 
@@ -338,39 +393,61 @@ const App: React.FC = () => {
         {showDimensionPicker && state.processed && (
           <div className="max-w-xl mx-auto space-y-8 animate-in slide-in-from-bottom-8 duration-500 bg-slate-900/40 p-8 rounded-3xl border border-slate-800">
             <div className="text-center space-y-2">
-              <h3 className="text-2xl font-bold text-white">اختر أبعاد التحميل</h3>
-              <p className="text-slate-400">سيتم تعديل الحجم بدقة عالية دون التأثير على نتيجة القص</p>
+              <h3 className="text-2xl font-bold text-white">إعدادات التحميل</h3>
+              <p className="text-slate-400">حدد اسم الملف والأبعاد النهائية (مربع 1:1)</p>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
-              {[500, 1000, 1500].map((dim) => (
-                <button
-                  key={dim}
-                  onClick={() => setSelectedDimension(dim)}
-                  className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-2 ${
-                    selectedDimension === dim 
-                      ? 'border-indigo-500 bg-indigo-500/10 shadow-lg shadow-indigo-500/10' 
-                      : 'border-slate-800 bg-slate-900 hover:border-slate-700'
-                  }`}
-                >
-                  <span className={`text-lg font-bold ${selectedDimension === dim ? 'text-indigo-400' : 'text-slate-300'}`}>
-                    {dim}x{dim}
-                  </span>
-                  <span className="text-xs text-slate-500 uppercase tracking-tighter">بكسل</span>
-                </button>
-              ))}
+            <div className="space-y-6">
+              {/* Filename Input */}
+              <div className="space-y-2">
+                <label className="text-xs text-slate-400 uppercase tracking-widest font-bold pr-1">اسم الملف</label>
+                <input
+                  type="text"
+                  value={downloadFilename}
+                  onChange={(e) => setDownloadFilename(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-2xl py-4 px-6 text-lg font-medium text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-right"
+                  placeholder="اسم الملف..."
+                />
+              </div>
+
+              {/* Dimension Input */}
+              <div className="space-y-2">
+                <label className="text-xs text-slate-400 uppercase tracking-widest font-bold pr-1">أبعاد الصورة (بكسل)</label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    value={selectedDimension}
+                    onChange={(e) => setSelectedDimension(Math.max(1, parseInt(e.target.value) || 0))}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-2xl py-6 px-6 text-2xl font-bold text-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-center"
+                    placeholder="مثال: 1000"
+                  />
+                  <div className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-500 font-bold pointer-events-none">
+                    بكسل
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex items-center justify-between px-2">
+                <span className="text-slate-500 text-sm">البعد الحالي: <span className="text-slate-300 font-mono">{selectedDimension}x{selectedDimension}</span></span>
+                {estimatedSize && (
+                  <span className="text-slate-500 text-sm">الحجم التقديري: <span className="text-emerald-400 font-mono">{estimatedSize}</span></span>
+                )}
+              </div>
             </div>
 
             <div className="space-y-4">
               <button 
                 onClick={finalDownload}
-                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-4 px-6 rounded-2xl font-bold transition-all shadow-xl shadow-emerald-500/20 flex items-center justify-center gap-2 text-lg"
+                disabled={selectedDimension <= 0}
+                className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-white py-4 px-6 rounded-2xl font-bold transition-all shadow-xl shadow-emerald-500/20 flex items-center justify-center gap-3 text-lg"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                 </svg>
-                تحميل بصيغة WEBP ({selectedDimension} بكسل)
+                تحميل بصيغة WEBP 
+                {estimatedSize && <span className="text-xs bg-black/20 px-2 py-0.5 rounded-full ml-1">({estimatedSize})</span>}
               </button>
+              
               <div className="flex gap-3">
                 <button 
                   onClick={() => { setShowDimensionPicker(false); setIsCroppingResult(true); }}
@@ -429,7 +506,7 @@ const App: React.FC = () => {
               },
               { 
                 title: "قص وتحجيم مرن", 
-                desc: "حدد منطقة القص المطلوبة واختر الأبعاد المناسبة لاستخدامك (500، 1000، أو 1500 بكسل).",
+                desc: "حدد منطقة القص المطلوبة وأدخل الأبعاد المناسبة لاستخدامك بدقة بكسل واحدة.",
                 icon: (
                   <svg className="w-6 h-6 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />

@@ -2,7 +2,8 @@
 import { GoogleGenAI } from "@google/genai";
 
 export const processImageToSquare = async (base64Data: string, mimeType: string): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+  // Always use the required initialization format: { apiKey: process.env.API_KEY }
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   // Clean base64 string
   const base64Content = base64Data.split(',')[1] || base64Data;
@@ -44,6 +45,7 @@ export const processImageToSquare = async (base64Data: string, mimeType: string)
     const candidate = response.candidates?.[0];
     if (!candidate) throw new Error("No response from AI");
 
+    // Iterate through all parts to find the image part as per guidelines.
     for (const part of candidate.content.parts) {
       if (part.inlineData) {
         return `data:image/png;base64,${part.inlineData.data}`;
