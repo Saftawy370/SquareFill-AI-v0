@@ -1,0 +1,7 @@
+{
+  "name": "SquareFill AI",
+  "description": "An AI-powered image tool that converts any image into a 1:1 aspect ratio by intelligently outpainting the background while preserving original subject dimensions.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
